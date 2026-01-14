@@ -217,7 +217,15 @@ st.markdown("---")
 # サイドバー
 with st.sidebar:
     st.header("■ 設定")
-    api_key = st.text_input("Claude API Key", type="password")
+    
+    # API Key取得（Secretsから自動取得）
+    if "ANTHROPIC_API_KEY" in st.secrets:
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+        st.success("✓ API Key設定済み")
+    else:
+        st.error("⚠️ API Keyが設定されていません")
+        st.info("管理者にStreamlit SecretsでANTHROPIC_API_KEYを設定するよう連絡してください")
+        api_key = None
     
     st.markdown("---")
     st.header("■ データソース")
@@ -238,10 +246,9 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### ▶ 使い方")
     st.markdown("""
-    1. API Keyを入力
-    2. 競合情報を入力
-    3. 分析実行
-    4. インタラクティブなグラフで確認
+    1. 競合情報を入力
+    2. 分析実行
+    3. インタラクティブなグラフで確認
     """)
     
     # 管理者用: アクセスログ表示
@@ -319,6 +326,31 @@ with col4:
 st.markdown("---")
 st.subheader("■ 詳細情報")
 
+col_add1, col_add2 = st.columns(2)
+
+with col_add1:
+    st.markdown("#### ▶ 競合タイトルの既知情報")
+    competitor_revenue = st.text_input(
+        "既知の年間売上（任意）",
+        placeholder="例: 200億円",
+        help="既知の売上データがあれば入力してください"
+    )
+    competitor_dau = st.text_input(
+        "既知のDAU/MAU（任意）",
+        placeholder="例: 50万人/200万人"
+    )
+
+with col_add2:
+    st.markdown("#### ▶ 自社タイトルの目標数値")
+    our_revenue_target = st.text_input(
+        "売上目標（任意）",
+        placeholder="例: 100億円"
+    )
+    our_dau_target = st.text_input(
+        "DAU/MAU目標（任意）",
+        placeholder="例: 30万人/100万人"
+    )
+
 additional_context = st.text_area(
     "特記事項・既知の情報",
     height=100,
@@ -367,7 +399,7 @@ MARKET_DATA = """
 st.markdown("---")
 if st.button("▶ 競合分析を実行", type="primary", use_container_width=True):
     if not api_key:
-        st.error("● Claude API Keyを入力してください")
+        st.error("● API Keyが設定されていません。管理者にStreamlit SecretsでANTHROPIC_API_KEYを設定するよう連絡してください。")
     elif not competitor_name or not our_product:
         st.error("● 競合タイトル名と自社タイトル名を入力してください")
     else:
@@ -395,17 +427,23 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
 - タイトル名: {competitor_name}
 - ジャンル: {competitor_genre}
 - プラットフォーム: {', '.join(competitor_platform)}
+{f"- 既知の年間売上: {competitor_revenue}" if competitor_revenue else ""}
+{f"- 既知のDAU/MAU: {competitor_dau}" if competitor_dau else ""}
 
 ■ 自社タイトル
 - タイトル名: {our_product}
 - ジャンル: {our_genre}
 - プラットフォーム: {', '.join(our_platform)}
+{f"- 売上目標: {our_revenue_target}" if our_revenue_target else ""}
+{f"- DAU/MAU目標: {our_dau_target}" if our_dau_target else ""}
 
 【分析タイプ】: {analysis_type}
 【比較観点】: {', '.join(comparison_focus)}
 
 【特記事項】
 {additional_context if additional_context else "特になし"}
+
+**【重要】既知の情報がある場合は、必ずその数値を優先して使用してください。推測が必要な場合は『推測』と明記してください。**
 
 ---
 
@@ -414,6 +452,9 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
 2. 全てのセクションで必ず表形式（Markdownテーブル）を使用
 3. 箇条書き（-や•）は使用禁止
 4. セクション名（MARKET_ANALYSIS、COMPETITOR_ANALYSIS等）を単独行で出力しない（必ず## セクション名の形式）
+5. **既知の数値情報がある場合は必ずその値を使用し、『（市場データ参照）』または『（既知情報）』と明記**
+6. **推測値の場合は必ず『（推定）』と明記し、根拠を示す**
+7. **データが不明な場合は『データなし』と記載し、無理に推測しない**
 
 以下の形式で回答してください。**必ず数値データを引用**してください:
 
@@ -445,16 +486,17 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
 ### 市場規模とトレンド
 
 **必ず以下の表形式で出力（箇条書き禁止）**:
+**既知の売上データがある場合は必ずその値を使用し、『（既知情報）』と明記してください**
 
 | 項目 | {competitor_name} | {our_product} |
 |------|-------------------|---------------|
-| 推定年間売上 | XXX億円（データ参照） | XXX億円（目標/推定） |
-| 市場ランキング | TOP XX（RPG内） | TOP XX（目標） |
-| DAU/MAU | XX万人/XX万人 | XX万人/XX万人（目標） |
+| 推定年間売上 | XXX億円（既知情報 or 市場データ参照 or 推定） | XXX億円（目標 or 推定） |
+| 市場ランキング | TOP XX（ジャンル内） | TOP XX（目標） |
+| DAU/MAU | XX万人/XX万人（既知 or 推定） | XX万人/XX万人（目標） |
 | 主要ターゲット層 | XX代XX性 | XX代XX性 |
-| 市場シェア | X.X% | X.X%（目標） |
+| 市場シェア | X.X%（既知 or 推定） | X.X%（目標） |
 
-*上記市場データから該当情報を引用し、具体的数値を記載*
+*既知の情報を最優先し、推測の場合は必ず根拠を付記*
 
 ### ジャンル特性
 

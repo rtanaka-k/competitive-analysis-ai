@@ -63,6 +63,7 @@ Secrets未設定時は以下のアカウントが利用可能：
 Streamlit CloudのSecrets設定：
 
 ```toml
+# ユーザー認証
 [users.admin]
 password = "your_strong_password"
 display_name = "管理者"
@@ -70,7 +71,12 @@ display_name = "管理者"
 [users.your_name]
 password = "another_password"
 display_name = "あなたの名前"
+
+# Claude API Key（必須）
+ANTHROPIC_API_KEY = "sk-ant-api03-XXXXX"
 ```
+
+**重要**: `ANTHROPIC_API_KEY`を必ず設定してください。設定しないとツールが動作しません。
 
 詳細は `secrets.toml.sample` を参照。
 
