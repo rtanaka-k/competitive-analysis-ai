@@ -1,6 +1,9 @@
 import streamlit as st
-from openai import OpenAI
 import anthropic
+from openai import OpenAI 
+from datetime import datetime
+...
+
 
 st.set_page_config(page_title="AI Competitive Analysis (Switch)", layout="wide")
 
