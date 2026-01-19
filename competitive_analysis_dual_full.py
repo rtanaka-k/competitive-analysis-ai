@@ -12,61 +12,10 @@ import csv
 
 # ページ設定
 st.set_page_config(
-    page_title="競合分析AI v2.6 (Temperature Optimized)",
+    page_title="競合分析AI v2.7 (Dual Mode)",
     page_icon="■",
     layout="wide"
 )
-
-# ============================================
-# Prompt Caching: 市場データキャッシュ
-# ============================================
-
-@st.cache_data
-def load_market_data_cache():
-    """
-    市場データキャッシュを読み込み（アプリ起動時に1回のみ）
-    /mnt/project/のテキストファイルから直接読み込み
-    """
-    files = [
-        {
-            "path": "/mnt/project/PDF書籍_ファミ通ゲーム白書2025.pdf",
-            "max_chars": 200000,
-            "name": "ファミ通ゲーム白書2025"
-        },
-        {
-            "path": "/mnt/project/PDF書籍_ファミ通モバイルゲーム白書2025.pdf",
-            "max_chars": 200000,
-            "name": "ファミ通モバイルゲーム白書2025"
-        }
-    ]
-    
-    combined_text = ""
-    
-    for file_info in files:
-        try:
-            with open(file_info["path"], 'r', encoding='utf-8') as f:
-                text = f.read()
-            
-            # 最大文字数で切り詰め
-            if file_info["max_chars"]:
-                text = text[:file_info["max_chars"]]
-            
-            # クリーニング
-            text = text.replace('\r\n', '\n').replace('\r', '\n')
-            
-            combined_text += f"\n\n【出典: {file_info['name']}】\n{text}"
-            
-        except Exception as e:
-            print(f"Error loading {file_info['name']}: {e}")
-            continue
-    
-    if combined_text:
-        # トークン数を推定
-        estimated_tokens = len(combined_text) // 4
-        print(f"Market data cache loaded: {len(combined_text):,} chars (~{estimated_tokens:,} tokens)")
-        return combined_text
-    
-    return None
 
 # ============================================
 # セキュリティ機能: アクセスログ記録
@@ -127,7 +76,7 @@ def check_password():
     
     def login_form():
         """ログインフォームの表示"""
-        st.title("競合分析AI v2.6 (Temperature Optimized)")
+        st.title("競合分析AI v2.7 (Dual Mode)")
         st.info("KRAFTON Japan 社内ツールです。ユーザー名とパスワードを入力してください。")
         
         with st.form("login_form"):
@@ -254,7 +203,7 @@ st.markdown("""
 # タイトル（ユーザー名表示付き）
 col_title, col_user = st.columns([4, 1])
 with col_title:
-    st.title("競合分析AI v2.6 (Temperature Optimized)")
+    st.title("競合分析AI v2.7 (Dual Mode)")
     st.markdown("**市場データに基づく競合タイトル分析ツール**")
 with col_user:
     st.markdown(f"**ログイン中:** {st.session_state.get('user_display_name', 'ゲスト')}")
@@ -277,13 +226,32 @@ with st.sidebar:
         help="使用するAIモデルを選択してください"
     )
     
+    # Claude専用: モデル選択
+    claude_model_mode = "sonnet"  # デフォルト
+    if api_provider == "Claude (Anthropic)":
+        st.markdown("---")
+        claude_model_mode = st.radio(
+            "🤖 Claudeモデル選択",
+            ["標準モード (Sonnet 4)", "高精度モード (Opus 4)"],
+            index=0,
+            help="""
+            **標準モード**: 高速・低コスト・安定動作（v2.1ベース）
+            **高精度モード**: より正確な分析（コスト5倍、v2.6最適化版）
+            """
+        )
+        
+        if "高精度" in claude_model_mode:
+            st.warning("💎 **Opus 4**: 最高精度の分析（コスト5倍）")
+        else:
+            st.info("⚡ **Sonnet 4**: 標準的な分析を高速で提供")
+    
     # API Key取得（Secretsから自動取得）
     if api_provider == "Claude (Anthropic)":
         if "ANTHROPIC_API_KEY" in st.secrets:
             api_key = st.secrets["ANTHROPIC_API_KEY"]
             st.success("✓ Claude API Key設定済み")
         else:
-            st.error("Claude API Keyが設定されていません")
+            st.error("⚠️ Claude API Keyが設定されていません")
             st.info("管理者にStreamlit SecretsでANTHROPIC_API_KEYを設定するよう連絡してください")
             api_key = None
     else:  # OpenAI
@@ -294,11 +262,11 @@ with st.sidebar:
             # Vector Store ID確認（オプション）
             if "OPENAI_VECTOR_STORE_ID" in st.secrets:
                 vector_store_id = st.secrets["OPENAI_VECTOR_STORE_ID"]
-                st.info(f"Vector Store設定済み")
+                st.info(f"📚 Vector Store設定済み")
             else:
                 vector_store_id = None
         else:
-            st.error("OpenAI API Keyが設定されていません")
+            st.error("⚠️ OpenAI API Keyが設定されていません")
             st.info("管理者にStreamlit SecretsでOPENAI_API_KEYを設定するよう連絡してください")
             api_key = None
             vector_store_id = None
@@ -488,34 +456,37 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
         
         with st.spinner(f"{api_provider}で分析中... (60-90秒)"):
             try:
-                # プロンプト構築（前回と同じ内容）
-                prompt = f"""
-あなたはゲーム業界の競合分析専門家です。以下の市場データと情報を基に詳細な分析を実施してください。
-
+                # モデルモード判定
+                use_opus = "高精度" in claude_model_mode if api_provider == "Claude (Anthropic)" else False
+                
+                # プロンプト構築
+                prompt_intro = ""
+                if use_opus:
+                    # Opus 4用: Few-Shot Examples追加
+                    prompt_intro = """
 **【出力形式の重要な注意】**
-すべてのセクションは必ずMarkdown表形式で出力してください。以下のような形式です：
+すべてのセクションは必ずMarkdown表形式で出力してください。
 
 【正しい出力例】
-## MARKET_ANALYSIS
-### 市場規模とトレンド
-
 | 項目 | FGO | モンスターストライク |
 |------|-----|-------------------|
-| 推定年間売上 | 950億円（市場データ） | 800億円（目標） |
-| 市場ランキング | TOP 3（年間・国内モバイル） | TOP 10（年間・国内モバイル・目標） |
-| DAU/MAU | 150万人/400万人（推定） | 100万人/300万人（目標） |
+| 推定年間売上 | 950億円 | 800億円（目標） |
+| 市場ランキング | TOP 3 | TOP 10（目標） |
 
-【誤った出力例 - これは禁止】
-## MARKET_ANALYSIS
-### 市場規模とトレンド
-
+【誤った出力例（禁止）】
 FGOの推定年間売上は950億円です。
-モンスターストライクの目標年間売上は800億円です。
+モンスターストライクの目標は800億円です。
 
 → このようなテキスト形式は絶対禁止です！
 
 ---
 
+"""
+                
+                prompt = f"""
+あなたはゲーム業界の競合分析専門家です。以下の市場データと情報を基に詳細な分析を実施してください。
+
+{prompt_intro}
 {MARKET_DATA}
 
 {reference_data}
@@ -547,8 +518,8 @@ FGOの推定年間売上は950億円です。
 
 **【重要指示】以下を必ず守ってください:**
 1. COMPARISON_METRICSは必ずJSON形式（```json ... ```）で出力
-2. **全てのセクションで必ず表形式（Markdownテーブル）を使用。箇条書き（-や•）・単なるテキスト形式は絶対禁止**
-3. **表の例**: `| 項目 | 競合 | 自社 |` という形式を必ず使用すること
+2. 全てのセクションで必ず表形式（Markdownテーブル）を使用
+3. 箇条書き（-や•）は使用禁止
 4. セクション名（MARKET_ANALYSIS、COMPETITOR_ANALYSIS等）を単独行で出力しない（必ず## セクション名の形式）
 5. **既知の数値情報がある場合は必ずその値を使用し、『（市場データ参照）』または『（既知情報）』と明記**
 6. **推測値の場合は必ず『（推定）』と明記し、根拠を示す**
@@ -556,7 +527,6 @@ FGOの推定年間売上は950億円です。
 8. **すべての数値・評価に対して、可能な限り出典・根拠を併記する**
 9. **買い切りゲームとライブサービスで指標を適切に使い分ける**
 10. **楽観的すぎる予測を避け、現実的なリスクも明示する**
-11. **{our_product}（自社タイトル）のスコア・根拠も必ず記載すること。空欄は絶対禁止**
 
 以下の形式で回答してください。**必ず数値データを引用**してください:
 
@@ -596,55 +566,41 @@ FGOの推定年間売上は950億円です。
 
 **各評価の根拠**（必ず具体的な要素を列挙）:
 
-**【重要】以下は必ずMarkdown表形式で出力してください。自社（{our_product}）のスコアと根拠も必須です**
-
 | 評価軸 | 競合スコア | 根拠となる具体的要素 | 自社スコア | 根拠となる具体的要素 |
 |-------|----------|-------------------|----------|-------------------|
-| 市場ポジション | XX点 | • [要素1: 例：国内売上TOP3]<br>• [要素2: 例：Google検索トレンド高位]<br>• [要素3: 例：SNS言及数多数] | XX点 | • [要素1: 例：新規参入でシェア未確立]<br>• [要素2: 例：初期ユーザー獲得目標XX万人]<br>• [要素3: 例：独自性による差別化] |
-| 収益性 | XX点 | • [要素1: 例：年間売上600億円]<br>• [要素2: 例：ARPU 8,000円/月]<br>• [要素3: 例：課金ユーザー率15%] | XX点 | • [要素1: 例：目標ARPU XX円]<br>• [要素2: 例：課金設計XX方式]<br>• [要素3: 例：初年度売上目標XX億円] |
-| ユーザー基盤 | XX点 | • [要素1: 例：DAU 200万人]<br>• [要素2: 例：継続率70%]<br>• [要素3: 例：コミュニティ活発] | XX点 | • [要素1: 例：初期DAU目標XX万人]<br>• [要素2: 例：ターゲット層XX代]<br>• [要素3: 例：コミュニティ育成計画] |
-| ブランド力 | XX点 | • [要素1: 例：IP知名度90%]<br>• [要素2: 例：コラボ実績多数]<br>• [要素3: 例：メディア露出高] | XX点 | • [要素1: 例：IPの認知度XX%]<br>• [要素2: 例：プロモーション計画]<br>• [要素3: 例：独自性・差別化要素] |
-| 技術力 | XX点 | • [要素1: 例：グラフィック品質高]<br>• [要素2: 例：サーバー安定性99.9%]<br>• [要素3: 例：技術的革新性] | XX点 | • [要素1: 例：技術スタックXX]<br>• [要素2: 例：開発体制XX名]<br>• [要素3: 例：技術的優位性] |
+| 市場ポジション | XX点 | • [要素1: 例：国内売上TOP3]<br>• [要素2: 例：Google検索トレンド高位]<br>• [要素3: 例：SNS言及数多数] | XX点 | • [要素1]<br>• [要素2]<br>• [要素3] |
+| 収益性 | XX点 | • [要素1: 例：年間売上600億円]<br>• [要素2: 例：ARPU 8,000円/月]<br>• [要素3: 例：課金ユーザー率15%] | XX点 | • [要素1]<br>• [要素2]<br>• [要素3] |
+| ユーザー基盤 | XX点 | • [要素1: 例：DAU 200万人]<br>• [要素2: 例：継続率70%]<br>• [要素3: 例：コミュニティ活発] | XX点 | • [要素1]<br>• [要素2]<br>• [要素3] |
+| ブランド力 | XX点 | • [要素1: 例：IP知名度90%]<br>• [要素2: 例：コラボ実績多数]<br>• [要素3: 例：メディア露出高] | XX点 | • [要素1]<br>• [要素2]<br>• [要素3] |
+| 技術力 | XX点 | • [要素1: 例：グラフィック品質高]<br>• [要素2: 例：サーバー安定性99.9%]<br>• [要素3: 例：技術的革新性] | XX点 | • [要素1]<br>• [要素2]<br>• [要素3] |
 
-**重要**: 
-- 各評価軸について、競合と自社の両方のスコアを構成する具体的要素を最低3つ挙げること
-- 抽象的な表現ではなく、数値・事実に基づく要素を記載
-- 自社（{our_product}）が新規タイトルの場合は、「目標」「計画」「想定」という形で記載すること
-- 空欄は絶対に禁止。必ず何かしらの根拠を記載すること
+**重要**: 各評価軸について、スコアを構成する具体的要素を最低3つ挙げること。抽象的な表現ではなく、数値・事実に基づく要素を記載。
 
 
 ## MARKET_ANALYSIS
-
 ### 市場規模とトレンド
 
-**【重要】以下は必ずMarkdown表形式で出力してください。箇条書き・テキスト形式は禁止です**
-
-**表の出力例**:
-```
-| 項目 | FGO | モンスターストライク |
-|------|-----|-------------------|
-| 推定年間売上 | 950億円（市場データ） | 800億円（市場データ） |
-```
-
-**必ず上記のような表形式で出力すること（箇条書き禁止）**:
-**既知の売上データがある場合は必ずその値を使用し、『（既知情報）』または『（市場データ）』と明記してください**
+**必ず以下の表形式で出力（箇条書き禁止）**:
+**既知の売上データがある場合は必ずその値を使用し、『（既知情報）』と明記してください**
 
 | 項目 | {competitor_name} | {our_product} |
 |------|-------------------|---------------|
 | 推定年間売上 | XXX億円（既知情報 or 市場データ参照 or 推定） | XXX億円（目標 or 推定） |
 | 市場ランキング | TOP XX（[期間]・[範囲]） | TOP XX（[期間]・[範囲]・目標） |
+
+*ランキング定義例: 「月間・国内モバイル全体」「年間・ジャンル内」「週間・iOS売上」など具体的に明記*
+
 | DAU/MAU | XX万人/XX万人（既知 or 推定） | XX万人/XX万人（目標） |
 | 主要ターゲット層 | XX代XX性 | XX代XX性 |
 | 市場シェア | X.X%（既知 or 推定） | X.X%（目標） |
 
-*ランキング定義例: 「月間・国内モバイル全体」「年間・ジャンル内」「週間・iOS売上」など具体的に明記*
 *既知の情報を最優先し、推測の場合は必ず根拠を付記*
 **重要**: 買い切りゲームの場合、DAU/MAUは販売本数・アクティブプレイヤー数など適切な指標に置き換えること
 （例: 「累計販売XX万本」「月間アクティブプレイヤーXX万人」など）
 
 ### ジャンル特性
 
-**【重要】以下は必ずMarkdown表形式で出力してください。箇条書き・テキスト形式は禁止です**
+**必ず以下の表形式で出力（箇条書き禁止）**:
 
 | 特性項目 | {competitor_name} | {our_product} |
 |----------|-------------------|---------------|
@@ -660,8 +616,6 @@ FGOの推定年間売上は950億円です。
 
 ### ビジネスモデル比較
 
-**【重要】以下は必ずMarkdown表形式で出力してください。箇条書き・テキスト形式は禁止です**
-
 | 項目 | {competitor_name} | {our_product} |
 |------|-------------------|---------------|
 | 収益化手法 | [具体的手法] | [想定手法] |
@@ -671,7 +625,7 @@ FGOの推定年間売上は950億円です。
 
 ### 強み・弱み比較
 
-**【重要】以下は必ずMarkdown表形式で出力してください。箇条書き・テキスト形式は禁止です**
+**必ず以下の表形式で出力（箇条書き禁止）**:
 
 | 評価軸 | {competitor_name} | {our_product} |
 |--------|-------------------|---------------|
@@ -686,8 +640,6 @@ FGOの推定年間売上は950億円です。
 
 ### 主要ギャップ分析
 
-**【重要】以下は必ずMarkdown表形式で出力してください。箇条書き・テキスト形式は禁止です**
-
 | 評価項目 | 現状のギャップ | 重要度 | 対応優先度 |
 |----------|---------------|--------|-----------|
 | 市場認知度 | {competitor_name}が[X]点優位 | 高/中/低 | 高/中/低 |
@@ -698,7 +650,7 @@ FGOの推定年間売上は950億円です。
 
 ### 差別化戦略
 
-**【重要】以下は必ずMarkdown表形式で出力してください。箇条書き・テキスト形式は禁止です**
+**必ず以下の表形式で出力（{our_product}の差別化ポイントを{competitor_name}と比較）**:
 
 | 差別化要素 | {competitor_name}のアプローチ | {our_product}の差別化ポイント | 実現可能性 |
 |-----------|----------------------------|----------------------------|----------|
@@ -714,7 +666,7 @@ FGOの推定年間売上は950億円です。
 
 **対象タイトル: {our_product}**
 
-**【重要】以下は必ずMarkdown表形式で出力してください。箇条書き・テキスト形式は禁止です**
+**必ず以下の表形式で出力**:
 
 | No | 施策 | 目的 | 実行内容 | 期待効果 | 優先度 |
 |----|------|------|---------|---------|--------|
@@ -726,7 +678,7 @@ FGOの推定年間売上は950億円です。
 
 **対象タイトル: {our_product}**
 
-**【重要】以下は必ずMarkdown表形式で出力してください。箇条書き・テキスト形式は禁止です**
+**必ず以下の表形式で出力**:
 
 | No | 戦略 | 目標 | 実行計画 | マイルストーン | KPI |
 |----|------|------|---------|--------------|-----|
@@ -741,8 +693,6 @@ FGOの推定年間売上は950億円です。
 
 **対象タイトル: {our_product}**
 
-**【重要】以下は必ずMarkdown表形式で出力してください。箇条書き・テキスト形式は禁止です**
-
 | リスク項目 | 内容 | 発生確率 | 影響度 | 対策 |
 |-----------|------|---------|--------|------|
 | [リスク1] | [具体的内容] | 高/中/低 | 高/中/低 | [対策] |
@@ -752,8 +702,6 @@ FGOの推定年間売上は950億円です。
 ### 市場機会
 
 **対象タイトル: {our_product}**
-
-**【重要】以下は必ずMarkdown表形式で出力してください。箇条書き・テキスト形式は禁止です**
 
 | 機会項目 | 内容 | 実現可能性 | 期待効果 | アプローチ |
 |---------|------|-----------|---------|-----------|
@@ -770,98 +718,51 @@ FGOの推定年間売上は950億円です。
 
 ## DATA_SOURCES
 
-**重要: 添付されている市場データ（ファミ通ゲーム白書2025、ファミ通モバイルゲーム白書2025）から具体的な数値を引用すること**
-
 **必ず以下の形式で具体的な出典を明記**:
 
 ### 使用したデータソース
 
-| データ項目 | 数値 | 出典 | 詳細（ページ/箇所） | 信頼性 |
-|----------|------|------|-------------------|--------|
-| 市場規模 | [具体的数値] | [レポート名] | [ページ番号 or 箇所] | 高/中/低 |
-| 売上推定 | [具体的数値] | [情報源] | [ページ番号 or 箇所] | 高/中/低 |
-| DAU/MAU | [具体的数値] | [情報源] | [ページ番号 or 箇所] | 高/中/低 |
-| CPI | [具体的数値] | [情報源] | [ページ番号 or 箇所] | 高/中/低 |
+| データ項目 | 出典 | 詳細（ページ/URL） | 信頼性 |
+|----------|------|------------------|--------|
+| 市場規模 | [レポート名] | [ページ番号 or URL] | 高/中/低 |
+| 売上推定 | [情報源] | [ページ番号 or URL] | 高/中/低 |
+| DAU/MAU | [情報源] | [ページ番号 or URL] | 高/中/低 |
+| CPI | [情報源] | [ページ番号 or URL] | 高/中/低 |
 
 **記載例**:
-- ✅ 良い例: 「モンスト年間売上950億円（ファミ通ゲーム白書2025より）」
-- ✅ 良い例: 「国内モバイルゲーム市場1.3兆円（ファミ通モバイルゲーム白書2025より）」
-- ❌ 悪い例: 「市場規模は大きい」「競合は強い」（具体的数値なし）
+- PDFデータの場合: 「ファミ通ゲーム白書2025 p.45-47」
+- Webデータの場合: 「https://example.com/market-report」
+- 組み込みデータの場合: 「2024年度国内ゲーム市場データ（提供データ）」
+- 推測の場合: 「業界一般知識に基づく推測」
 
 **データの信頼性について**:
-- **高**: 添付の市場データ（ファミ通白書・JOGAレポート）、公式発表、大手市場調査会社レポート
+- **高**: 公式発表、大手市場調査会社レポート、政府統計
 - **中**: 業界推定、アナリストレポート、メディア報道
 - **低**: 推測、一般的な業界知識、根拠不十分
 
 **データが不足している項目**:
 [該当する項目を明記し、推測であることを明示]
 
-**添付されている市場データの活用を最優先すること。具体的な数値、ページ番号、出典を必ず含めること。**
-
----
-
-**【最終確認 - 必ず守ること】**
-
-すべてのセクション（MARKET_ANALYSIS、COMPETITOR_ANALYSIS、GAP_ANALYSIS、ACTION_PLAN、RISK_OPPORTUNITY、DATA_SOURCES）は、
-**必ずMarkdown表形式で出力**してください。
-
-テキストのみの箇条書きは絶対に使用しないでください。
-
-正しい形式の例:
-```
-| 項目 | 競合タイトル | 自社タイトル |
-|------|------------|------------|
-| 年間売上 | 950億円 | 50億円（目標） |
-```
-
-誤った形式の例（使用禁止）:
-```
-- 競合タイトルの年間売上は950億円です
-- 自社タイトルの目標は50億円です
-```
-
-この指示を必ず守って出力してください。
+**重要**: すべてのデータについて、可能な限り具体的な出典を記載すること。ページ番号やURLがある場合は必ず含めること。
 """
                 
                 # ===== Claude を使うパターン =====
                 if api_provider == "Claude (Anthropic)":
                     client = anthropic.Anthropic(api_key=api_key)
                     
-                    # 市場データキャッシュを読み込み
-                    market_data_cache = load_market_data_cache()
+                    # モデルとtemperatureを選択
+                    use_opus = "高精度" in claude_model_mode
+                    selected_model = "claude-opus-4-20250514" if use_opus else "claude-sonnet-4-20250514"
+                    selected_temperature = 0.1 if use_opus else 0.7
                     
-                    # Prompt Cachingを使用
-                    if market_data_cache:
-                        st.info("市場データキャッシュを使用（Prompt Caching）")
-                        
-                        # 市場データの内容を表示
-                        with st.expander("参照可能な市場データ（クリックして確認）", expanded=False):
-                            st.markdown("""
-                            このAIは以下の市場データを参照して分析します：
-                            
-                            ✅ **ファミ通ゲーム白書2025** (約50,000トークン)
-                            - 国内ゲーム市場規模
-                            - 主要タイトル別売上データ
-                            - プラットフォーム別シェア
-                            - ジャンル別トレンド
-                            
-                            ✅ **ファミ通モバイルゲーム白書2025** (約50,000トークン)
-                            - モバイルゲーム市場規模
-                            - 主要タイトル別売上・DAU/MAU
-                            - 収益モデル分析
-                            - ユーザー動向
-                            
-                            AIは上記データから具体的な数値を引用して分析を行います
-                            """)
-                        
-                        message = client.messages.create(
-                            model="claude-sonnet-4-20250514",
-                            max_tokens=8000,
-                            temperature=0.1,  # 決定論的な出力を強制
-                            system=[
-                                {
-                                    "type": "text",
-                                    "text": """あなたはゲーム業界の競合分析専門家です。提供された市場データを参照して、正確で詳細な分析を提供してください。
+                    # Opus 4使用時の通知
+                    if use_opus:
+                        st.info(f"🚀 {selected_model}（Opus 4）で分析を実行中...")
+                    
+                    # システムプロンプト（Opus 4使用時のみ）
+                    system_prompt = None
+                    if use_opus:
+                        system_prompt = """あなたはゲーム業界の競合分析専門家です。
 
 【絶対に守るべきルール】
 1. すべての情報は必ずMarkdown表形式で出力すること
@@ -871,56 +772,22 @@ FGOの推定年間売上は950億円です。
 5. 自社タイトルのスコア・データも必ず記載すること（空欄禁止）
 6. 新規タイトルの場合は「目標XX」「計画XX」という形で記載
 
-【表形式の例】
-```
-| 項目 | FGO | モンスターストライク |
-|------|-----|-------------------|
-| 推定年間売上 | 950億円 | 800億円（目標） |
-| 市場ランキング | TOP 3 | TOP 10（目標） |
-```
-
-このような表形式を必ず使用してください。テキストのみの出力は不可です。""",
-                                },
-                                {
-                                    "type": "text",
-                                    "text": market_data_cache,
-                                    "cache_control": {"type": "ephemeral"}  # Prompt Caching
-                                }
-                            ],
+このような表形式を必ず使用してください。テキストのみの出力は不可です。"""
+                    
+                    # API呼び出し
+                    if system_prompt:
+                        message = client.messages.create(
+                            model=selected_model,
+                            max_tokens=8000,
+                            temperature=selected_temperature,
+                            system=system_prompt,
                             messages=[{"role": "user", "content": prompt}]
                         )
-                        
-                        # キャッシュ使用状況をログ
-                        usage = message.usage
-                        if hasattr(usage, 'cache_read_input_tokens') and usage.cache_read_input_tokens > 0:
-                            st.success(f"✅ キャッシュヒット！（{usage.cache_read_input_tokens:,} tokens読み取り、コスト90%削減）")
-                        elif hasattr(usage, 'cache_creation_input_tokens') and usage.cache_creation_input_tokens > 0:
-                            st.info(f"🔄 キャッシュ作成（{usage.cache_creation_input_tokens:,} tokens、次回から90%削減）")
                     else:
-                        # キャッシュなし（通常モード）
                         message = client.messages.create(
-                            model="claude-sonnet-4-20250514",
+                            model=selected_model,
                             max_tokens=8000,
-                            temperature=0.1,  # 決定論的な出力を強制
-                            system="""あなたはゲーム業界の競合分析専門家です。
-
-【絶対に守るべきルール】
-1. すべての情報は必ずMarkdown表形式で出力すること
-2. 表の形式: | 項目 | 値1 | 値2 | のように必ず縦棒(|)で区切ること
-3. 箇条書き（-や•）は絶対に使用禁止
-4. テキストのみの羅列は禁止
-5. 自社タイトルのスコア・データも必ず記載すること（空欄禁止）
-6. 新規タイトルの場合は「目標XX」「計画XX」という形で記載
-
-【表形式の例】
-```
-| 項目 | FGO | モンスターストライク |
-|------|-----|-------------------|
-| 推定年間売上 | 950億円 | 800億円（目標） |
-| 市場ランキング | TOP 3 | TOP 10（目標） |
-```
-
-このような表形式を必ず使用してください。テキストのみの出力は不可です。""",
+                            temperature=selected_temperature,
                             messages=[{"role": "user", "content": prompt}]
                         )
                     
@@ -930,139 +797,26 @@ FGOの推定年間売上は950億円です。
                 else:
                     client = OpenAI(api_key=api_key)
                     
-                    # Vector Store使用判定
-                    use_vector_store = 'vector_store_id' in locals() and vector_store_id is not None
+                    # Chat Completions API
+                    response = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": "あなたはゲーム業界の競合分析専門家です。"},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.7,
+                        max_tokens=8000
+                    )
                     
-                    if use_vector_store:
-                        # Assistants API + Vector Store
-                        st.info("Vector Storeを使用して分析します...")
-                        
-                        # Step 1: Assistantを作成
-                        assistant = client.beta.assistants.create(
-                            name="Game Market Analyzer",
-                            instructions="""あなたはゲーム業界の競合分析専門家です。提供された市場データを参照して、正確で詳細な分析を提供してください。
-
-【絶対に守るべきルール】
-1. すべての情報は必ずMarkdown表形式で出力すること
-2. 表の形式: | 項目 | 値1 | 値2 | のように必ず縦棒(|)で区切ること
-3. 箇条書き（-や•）は絶対に使用禁止
-4. テキストのみの羅列は禁止
-5. 自社タイトルのスコア・データも必ず記載すること（空欄禁止）
-6. 新規タイトルの場合は「目標XX」「計画XX」という形で記載
-
-【表形式の例】
-```
-| 項目 | FGO | モンスターストライク |
-|------|-----|-------------------|
-| 推定年間売上 | 950億円 | 800億円（目標） |
-```
-
-このような表形式を必ず使用してください。""",
-                            model="gpt-4-turbo",
-                            tools=[{"type": "file_search"}],
-                            tool_resources={
-                                "file_search": {
-                                    "vector_store_ids": [vector_store_id]
-                                }
-                            }
-                        )
-                        
-                        # Step 2: Threadを作成
-                        thread = client.beta.threads.create()
-                        
-                        # Step 3: メッセージを追加
-                        client.beta.threads.messages.create(
-                            thread_id=thread.id,
-                            role="user",
-                            content=prompt
-                        )
-                        
-                        # Step 4: Runを実行（完了まで待機）
-                        run = client.beta.threads.runs.create_and_poll(
-                            thread_id=thread.id,
-                            assistant_id=assistant.id,
-                            timeout=300  # 5分でタイムアウト
-                        )
-                        
-                        # Step 5: 結果を取得
-                        if run.status == "completed":
-                            messages = client.beta.threads.messages.list(
-                                thread_id=thread.id,
-                                order="desc",
-                                limit=1
-                            )
-                            result = messages.data[0].content[0].text.value
-                            
-                            # Assistantを削除（リソース節約）
-                            client.beta.assistants.delete(assistant.id)
-                        else:
-                            raise Exception(f"分析に失敗しました (Status: {run.status})")
-                    
-                    else:
-                        # Chat Completions API（Vector Storeなし）
-                        st.info("ℹ️ 基本モードで分析します（Vector Store未使用）")
-                        
-                        response = client.chat.completions.create(
-                            model="gpt-4o",
-                            messages=[
-                                {"role": "system", "content": """あなたはゲーム業界の競合分析専門家です。
-
-【絶対に守るべきルール】
-1. すべての情報は必ずMarkdown表形式で出力すること
-2. 表の形式: | 項目 | 値1 | 値2 | のように必ず縦棒(|)で区切ること
-3. 箇条書き（-や•）は絶対に使用禁止
-4. テキストのみの羅列は禁止
-5. 自社タイトルのスコア・データも必ず記載すること（空欄禁止）
-6. 新規タイトルの場合は「目標XX」「計画XX」という形で記載
-
-【表形式の例】
-```
-| 項目 | FGO | モンスターストライク |
-|------|-----|-------------------|
-| 推定年間売上 | 950億円 | 800億円（目標） |
-```
-
-このような表形式を必ず使用してください。テキストのみの出力は不可です。"""},
-                                {"role": "user", "content": prompt}
-                            ],
-                            temperature=0.1,  # 決定論的な出力を強制
-                            max_tokens=8000
-                        )
-                        
-                        result = response.choices[0].message.content
+                    result = response.choices[0].message.content
                 
                 st.success(f"■ 分析完了 ({api_provider})")
                 st.markdown("---")
                 
-                # ===== 結果のポストプロセス処理 =====
-                # <br> タグを改行に変換
-                result = result.replace('<br>', '\n').replace('<br/>', '\n').replace('<br />', '\n')
-                
-                # ===== 結果のバリデーション =====
-                # 表形式が含まれているかチェック
-                table_count = result.count('|')
-                if table_count < 50:  # 表が少なすぎる場合
-                    st.warning("⚠️ 注意: AIの出力に表形式が少ない可能性があります。より良い結果を得るには、再度分析を実行することをお勧めします。")
-                
-                # 自社タイトル名が出力に含まれているかチェック
-                if our_product not in result:
-                    st.warning(f"⚠️ 注意: 自社タイトル「{our_product}」のデータが不足している可能性があります。")
-                
                 # 結果を視覚化
                 st.markdown("## ■ 分析結果")
                 
-                # ===== セクション色分け設定 =====
-                section_colors = {
-                    "EXECUTIVE_SUMMARY": {"bg": "#1e3a5f", "border": "#4a90e2"},
-                    "MARKET_ANALYSIS": {"bg": "#2d5016", "border": "#4caf50"},
-                    "COMPETITOR_ANALYSIS": {"bg": "#5f1e1e", "border": "#e24a4a"},
-                    "GAP_ANALYSIS": {"bg": "#5f4d1e", "border": "#e2a44a"},
-                    "ACTION_PLAN": {"bg": "#4d1e5f", "border": "#a44ae2"},
-                    "RISK_OPPORTUNITY": {"bg": "#1e4d5f", "border": "#4aa4e2"},
-                    "DATA_SOURCES": {"bg": "#1e5f3a", "border": "#4ae290"}
-                }
-                
-                # エグゼクティブサマリー抽出（改善版）
+                # エグゼクティブサマリー抽出（ダークモード対応）
                 if "EXECUTIVE_SUMMARY" in result:
                     summary_start = result.find("EXECUTIVE_SUMMARY")
                     summary_end = result.find("##", summary_start + 1)
@@ -1070,15 +824,11 @@ FGOの推定年間売上は950億円です。
                         summary_end = len(result)
                     
                     summary_text = result[summary_start:summary_end].replace("EXECUTIVE_SUMMARY", "").strip()
-                    # 改行を<br>タグに変換（HTML表示用）
-                    summary_html = summary_text.replace('\n', '<br>')
                     
-                    colors = section_colors["EXECUTIVE_SUMMARY"]
                     st.markdown(f"""
-                    <div style="padding: 20px; border-radius: 10px; background: linear-gradient(135deg, {colors['bg']} 0%, #0a1929 100%); 
-                                margin: 20px 0; border: 2px solid {colors['border']}; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
-                        <h3 style="color: {colors['border']}; margin-top: 0;">■ エグゼクティブサマリー</h3>
-                        <p style="color: white; line-height: 1.8; font-size: 1.05em;">{summary_html}</p>
+                    <div style="padding: 20px; border-radius: 10px; background-color: #1e3a5f; margin: 20px 0; border: 2px solid #4a90e2; color: white;">
+                        <h3 style="color: #4a90e2; margin-top: 0;">■ エグゼクティブサマリー</h3>
+                        <p style="color: white; line-height: 1.6;">{summary_text}</p>
                     </div>
                     """, unsafe_allow_html=True)
                 
@@ -1249,7 +999,7 @@ FGOの推定年間売上は950億円です。
                         display_result = display_result.replace(f"{section_name}\n", "")
                         display_result = display_result.replace(section_name, "")
                     
-                    # セクションごとにBOX化（色分け対応）
+                    # セクションごとにBOX化
                     sections = display_result.split('##')
                     for section in sections:
                         if section.strip():
@@ -1261,34 +1011,15 @@ FGOの推定年間売上は950億円です。
                                 if title in ['EXECUTIVE_SUMMARY']:
                                     continue
                                 
-                                # セクション名に対応する色を取得
-                                section_key = None
-                                for key in section_colors.keys():
-                                    if key.replace('_', ' ').lower() in title.lower() or title.replace(' ', '_').upper() == key:
-                                        section_key = key
-                                        break
-                                
-                                if section_key:
-                                    colors = section_colors[section_key]
-                                    bg_color = colors['bg']
-                                    border_color = colors['border']
-                                else:
-                                    # デフォルト色
-                                    bg_color = "#2d2d2d"
-                                    border_color = "#4a90e2"
-                                
-                                # 改行を<br>タグに変換
-                                content_html = content.replace('\n', '<br>')
-                                
                                 st.markdown(f"""
-                                <div style="padding: 15px; border-radius: 8px; background: linear-gradient(135deg, {bg_color} 0%, #0a1929 100%); 
-                                            margin: 15px 0; border-left: 4px solid {border_color}; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-                                    <h3 style="color: {border_color}; margin-top: 0;">■ {title}</h3>
-                                    <div style="color: #e0e0e0; line-height: 1.7;">
-                                        {content_html}
-                                    </div>
-                                </div>
+                                <div style="padding: 15px; border-radius: 8px; background-color: #2d2d2d; margin: 15px 0; border-left: 4px solid #4a90e2;">
+                                    <h3 style="color: #4a90e2; margin-top: 0;">■ {title}</h3>
+                                    <div style="color: #e0e0e0;">
                                 """, unsafe_allow_html=True)
+                                
+                                st.markdown(content)
+                                
+                                st.markdown("</div></div>", unsafe_allow_html=True)
                             else:
                                 if section.strip() not in ['MARKET_ANALYSIS', 'COMPETITOR_ANALYSIS', 'GAP_ANALYSIS', 'ACTION_PLAN', 'RISK_OPPORTUNITY']:
                                     st.markdown(section)
@@ -1334,7 +1065,7 @@ FGOの推定年間売上は950億円です。
                         
                         st.markdown("""
                         <div style="padding: 15px; border-radius: 8px; background-color: #1e3a5f; margin: 15px 0; border: 2px solid #4a90e2;">
-                            <h4 style="color: #4a90e2; margin-top: 0;">■ 今回の分析で使用したデータソース</h4>
+                            <h4 style="color: #4a90e2; margin-top: 0;">📚 今回の分析で使用したデータソース</h4>
                         </div>
                         """, unsafe_allow_html=True)
                         
@@ -1381,7 +1112,7 @@ if st.session_state.get("show_logs", False):
 st.markdown("---")
 col_f1, col_f2, col_f3 = st.columns(3)
 with col_f1:
-    st.markdown("**競合分析AI v2.6 (Temperature Optimized)**")
+    st.markdown("**競合分析AI v2.7 (Dual Mode)**")
 with col_f2:
     st.markdown(f"*Powered by {api_provider if 'api_provider' in locals() else 'AI'}*")
 with col_f3:
