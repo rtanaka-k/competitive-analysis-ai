@@ -12,7 +12,7 @@ import csv
 
 # ページ設定
 st.set_page_config(
-    page_title="競合分析AI v2.1 (Dual API)",
+    page_title="競合分析AI v2.5 (Few-Shot Enhanced)",
     page_icon="■",
     layout="wide"
 )
@@ -127,7 +127,7 @@ def check_password():
     
     def login_form():
         """ログインフォームの表示"""
-        st.title("競合分析AI v2.1 (Dual API)")
+        st.title("競合分析AI v2.5 (Few-Shot Enhanced)")
         st.info("KRAFTON Japan 社内ツールです。ユーザー名とパスワードを入力してください。")
         
         with st.form("login_form"):
@@ -254,7 +254,7 @@ st.markdown("""
 # タイトル（ユーザー名表示付き）
 col_title, col_user = st.columns([4, 1])
 with col_title:
-    st.title("競合分析AI v2.1 (Dual API)")
+    st.title("競合分析AI v2.5 (Few-Shot Enhanced)")
     st.markdown("**市場データに基づく競合タイトル分析ツール**")
 with col_user:
     st.markdown(f"**ログイン中:** {st.session_state.get('user_display_name', 'ゲスト')}")
@@ -491,6 +491,30 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
                 # プロンプト構築（前回と同じ内容）
                 prompt = f"""
 あなたはゲーム業界の競合分析専門家です。以下の市場データと情報を基に詳細な分析を実施してください。
+
+**【出力形式の重要な注意】**
+すべてのセクションは必ずMarkdown表形式で出力してください。以下のような形式です：
+
+【正しい出力例】
+## MARKET_ANALYSIS
+### 市場規模とトレンド
+
+| 項目 | FGO | モンスターストライク |
+|------|-----|-------------------|
+| 推定年間売上 | 950億円（市場データ） | 800億円（目標） |
+| 市場ランキング | TOP 3（年間・国内モバイル） | TOP 10（年間・国内モバイル・目標） |
+| DAU/MAU | 150万人/400万人（推定） | 100万人/300万人（目標） |
+
+【誤った出力例 - これは禁止】
+## MARKET_ANALYSIS
+### 市場規模とトレンド
+
+FGOの推定年間売上は950億円です。
+モンスターストライクの目標年間売上は800億円です。
+
+→ このようなテキスト形式は絶対禁止です！
+
+---
 
 {MARKET_DATA}
 
@@ -1331,7 +1355,7 @@ if st.session_state.get("show_logs", False):
 st.markdown("---")
 col_f1, col_f2, col_f3 = st.columns(3)
 with col_f1:
-    st.markdown("**競合分析AI v2.1 (Dual API)**")
+    st.markdown("**競合分析AI v2.5 (Few-Shot Enhanced)**")
 with col_f2:
     st.markdown(f"*Powered by {api_provider if 'api_provider' in locals() else 'AI'}*")
 with col_f3:
