@@ -283,7 +283,7 @@ with st.sidebar:
             api_key = st.secrets["ANTHROPIC_API_KEY"]
             st.success("✓ Claude API Key設定済み")
         else:
-            st.error("⚠️ Claude API Keyが設定されていません")
+            st.error("Claude API Keyが設定されていません")
             st.info("管理者にStreamlit SecretsでANTHROPIC_API_KEYを設定するよう連絡してください")
             api_key = None
     else:  # OpenAI
@@ -294,11 +294,11 @@ with st.sidebar:
             # Vector Store ID確認（オプション）
             if "OPENAI_VECTOR_STORE_ID" in st.secrets:
                 vector_store_id = st.secrets["OPENAI_VECTOR_STORE_ID"]
-                st.info(f"📚 Vector Store設定済み")
+                st.info(f"Vector Store設定済み")
             else:
                 vector_store_id = None
         else:
-            st.error("⚠️ OpenAI API Keyが設定されていません")
+            st.error("OpenAI API Keyが設定されていません")
             st.info("管理者にStreamlit SecretsでOPENAI_API_KEYを設定するよう連絡してください")
             api_key = None
             vector_store_id = None
@@ -723,32 +723,33 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
 
 ## DATA_SOURCES
 
+**重要: 添付されている市場データ（ファミ通ゲーム白書2025、ファミ通モバイルゲーム白書2025）から具体的な数値を引用すること**
+
 **必ず以下の形式で具体的な出典を明記**:
 
 ### 使用したデータソース
 
-| データ項目 | 出典 | 詳細（ページ/URL） | 信頼性 |
-|----------|------|------------------|--------|
-| 市場規模 | [レポート名] | [ページ番号 or URL] | 高/中/低 |
-| 売上推定 | [情報源] | [ページ番号 or URL] | 高/中/低 |
-| DAU/MAU | [情報源] | [ページ番号 or URL] | 高/中/低 |
-| CPI | [情報源] | [ページ番号 or URL] | 高/中/低 |
+| データ項目 | 数値 | 出典 | 詳細（ページ/箇所） | 信頼性 |
+|----------|------|------|-------------------|--------|
+| 市場規模 | [具体的数値] | [レポート名] | [ページ番号 or 箇所] | 高/中/低 |
+| 売上推定 | [具体的数値] | [情報源] | [ページ番号 or 箇所] | 高/中/低 |
+| DAU/MAU | [具体的数値] | [情報源] | [ページ番号 or 箇所] | 高/中/低 |
+| CPI | [具体的数値] | [情報源] | [ページ番号 or 箇所] | 高/中/低 |
 
 **記載例**:
-- PDFデータの場合: 「ファミ通ゲーム白書2025 p.45-47」
-- Webデータの場合: 「https://example.com/market-report」
-- 組み込みデータの場合: 「2024年度国内ゲーム市場データ（提供データ）」
-- 推測の場合: 「業界一般知識に基づく推測」
+- ✅ 良い例: 「モンスト年間売上950億円（ファミ通ゲーム白書2025より）」
+- ✅ 良い例: 「国内モバイルゲーム市場1.3兆円（ファミ通モバイルゲーム白書2025より）」
+- ❌ 悪い例: 「市場規模は大きい」「競合は強い」（具体的数値なし）
 
 **データの信頼性について**:
-- **高**: 公式発表、大手市場調査会社レポート、政府統計
+- **高**: 添付の市場データ（ファミ通白書・JOGAレポート）、公式発表、大手市場調査会社レポート
 - **中**: 業界推定、アナリストレポート、メディア報道
 - **低**: 推測、一般的な業界知識、根拠不十分
 
 **データが不足している項目**:
 [該当する項目を明記し、推測であることを明示]
 
-**重要**: すべてのデータについて、可能な限り具体的な出典を記載すること。ページ番号やURLがある場合は必ず含めること。
+**添付されている市場データの活用を最優先すること。具体的な数値、ページ番号、出典を必ず含めること。**
 """
                 
                 # ===== Claude を使うパターン =====
@@ -760,7 +761,27 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
                     
                     # Prompt Cachingを使用
                     if market_data_cache:
-                        st.info("📚 市場データキャッシュを使用（Prompt Caching）")
+                        st.info("市場データキャッシュを使用（Prompt Caching）")
+                        
+                        # 市場データの内容を表示
+                        with st.expander("参照可能な市場データ（クリックして確認）", expanded=False):
+                            st.markdown("""
+                            このAIは以下の市場データを参照して分析します：
+                            
+                            ✅ **ファミ通ゲーム白書2025** (約50,000トークン)
+                            - 国内ゲーム市場規模
+                            - 主要タイトル別売上データ
+                            - プラットフォーム別シェア
+                            - ジャンル別トレンド
+                            
+                            ✅ **ファミ通モバイルゲーム白書2025** (約50,000トークン)
+                            - モバイルゲーム市場規模
+                            - 主要タイトル別売上・DAU/MAU
+                            - 収益モデル分析
+                            - ユーザー動向
+                            
+                            AIは上記データから具体的な数値を引用して分析を行います
+                            """)
                         
                         message = client.messages.create(
                             model="claude-sonnet-4-20250514",
@@ -804,7 +825,7 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
                     
                     if use_vector_store:
                         # Assistants API + Vector Store
-                        st.info("📚 Vector Storeを使用して分析します...")
+                        st.info("Vector Storeを使用して分析します...")
                         
                         # Step 1: Assistantを作成
                         assistant = client.beta.assistants.create(
@@ -869,10 +890,25 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
                 st.success(f"■ 分析完了 ({api_provider})")
                 st.markdown("---")
                 
+                # ===== 結果のポストプロセス処理 =====
+                # <br> タグを改行に変換
+                result = result.replace('<br>', '\n').replace('<br/>', '\n').replace('<br />', '\n')
+                
                 # 結果を視覚化
                 st.markdown("## ■ 分析結果")
                 
-                # エグゼクティブサマリー抽出（ダークモード対応）
+                # ===== セクション色分け設定 =====
+                section_colors = {
+                    "EXECUTIVE_SUMMARY": {"bg": "#1e3a5f", "border": "#4a90e2"},
+                    "MARKET_ANALYSIS": {"bg": "#2d5016", "border": "#4caf50"},
+                    "COMPETITOR_ANALYSIS": {"bg": "#5f1e1e", "border": "#e24a4a"},
+                    "GAP_ANALYSIS": {"bg": "#5f4d1e", "border": "#e2a44a"},
+                    "ACTION_PLAN": {"bg": "#4d1e5f", "border": "#a44ae2"},
+                    "RISK_OPPORTUNITY": {"bg": "#1e4d5f", "border": "#4aa4e2"},
+                    "DATA_SOURCES": {"bg": "#1e5f3a", "border": "#4ae290"}
+                }
+                
+                # エグゼクティブサマリー抽出（改善版）
                 if "EXECUTIVE_SUMMARY" in result:
                     summary_start = result.find("EXECUTIVE_SUMMARY")
                     summary_end = result.find("##", summary_start + 1)
@@ -880,11 +916,15 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
                         summary_end = len(result)
                     
                     summary_text = result[summary_start:summary_end].replace("EXECUTIVE_SUMMARY", "").strip()
+                    # 改行を<br>タグに変換（HTML表示用）
+                    summary_html = summary_text.replace('\n', '<br>')
                     
+                    colors = section_colors["EXECUTIVE_SUMMARY"]
                     st.markdown(f"""
-                    <div style="padding: 20px; border-radius: 10px; background-color: #1e3a5f; margin: 20px 0; border: 2px solid #4a90e2; color: white;">
-                        <h3 style="color: #4a90e2; margin-top: 0;">■ エグゼクティブサマリー</h3>
-                        <p style="color: white; line-height: 1.6;">{summary_text}</p>
+                    <div style="padding: 20px; border-radius: 10px; background: linear-gradient(135deg, {colors['bg']} 0%, #0a1929 100%); 
+                                margin: 20px 0; border: 2px solid {colors['border']}; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                        <h3 style="color: {colors['border']}; margin-top: 0;">■ エグゼクティブサマリー</h3>
+                        <p style="color: white; line-height: 1.8; font-size: 1.05em;">{summary_html}</p>
                     </div>
                     """, unsafe_allow_html=True)
                 
@@ -1055,7 +1095,7 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
                         display_result = display_result.replace(f"{section_name}\n", "")
                         display_result = display_result.replace(section_name, "")
                     
-                    # セクションごとにBOX化
+                    # セクションごとにBOX化（色分け対応）
                     sections = display_result.split('##')
                     for section in sections:
                         if section.strip():
@@ -1067,15 +1107,34 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
                                 if title in ['EXECUTIVE_SUMMARY']:
                                     continue
                                 
+                                # セクション名に対応する色を取得
+                                section_key = None
+                                for key in section_colors.keys():
+                                    if key.replace('_', ' ').lower() in title.lower() or title.replace(' ', '_').upper() == key:
+                                        section_key = key
+                                        break
+                                
+                                if section_key:
+                                    colors = section_colors[section_key]
+                                    bg_color = colors['bg']
+                                    border_color = colors['border']
+                                else:
+                                    # デフォルト色
+                                    bg_color = "#2d2d2d"
+                                    border_color = "#4a90e2"
+                                
+                                # 改行を<br>タグに変換
+                                content_html = content.replace('\n', '<br>')
+                                
                                 st.markdown(f"""
-                                <div style="padding: 15px; border-radius: 8px; background-color: #2d2d2d; margin: 15px 0; border-left: 4px solid #4a90e2;">
-                                    <h3 style="color: #4a90e2; margin-top: 0;">■ {title}</h3>
-                                    <div style="color: #e0e0e0;">
+                                <div style="padding: 15px; border-radius: 8px; background: linear-gradient(135deg, {bg_color} 0%, #0a1929 100%); 
+                                            margin: 15px 0; border-left: 4px solid {border_color}; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                                    <h3 style="color: {border_color}; margin-top: 0;">■ {title}</h3>
+                                    <div style="color: #e0e0e0; line-height: 1.7;">
+                                        {content_html}
+                                    </div>
+                                </div>
                                 """, unsafe_allow_html=True)
-                                
-                                st.markdown(content)
-                                
-                                st.markdown("</div></div>", unsafe_allow_html=True)
                             else:
                                 if section.strip() not in ['MARKET_ANALYSIS', 'COMPETITOR_ANALYSIS', 'GAP_ANALYSIS', 'ACTION_PLAN', 'RISK_OPPORTUNITY']:
                                     st.markdown(section)
@@ -1121,7 +1180,7 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
                         
                         st.markdown("""
                         <div style="padding: 15px; border-radius: 8px; background-color: #1e3a5f; margin: 15px 0; border: 2px solid #4a90e2;">
-                            <h4 style="color: #4a90e2; margin-top: 0;">📚 今回の分析で使用したデータソース</h4>
+                            <h4 style="color: #4a90e2; margin-top: 0;">■ 今回の分析で使用したデータソース</h4>
                         </div>
                         """, unsafe_allow_html=True)
                         
