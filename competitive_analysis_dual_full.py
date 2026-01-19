@@ -12,7 +12,7 @@ import csv
 
 # ページ設定
 st.set_page_config(
-    page_title="競合分析AI v2.5 (Few-Shot Enhanced)",
+    page_title="競合分析AI v2.6 (Temperature Optimized)",
     page_icon="■",
     layout="wide"
 )
@@ -127,7 +127,7 @@ def check_password():
     
     def login_form():
         """ログインフォームの表示"""
-        st.title("競合分析AI v2.5 (Few-Shot Enhanced)")
+        st.title("競合分析AI v2.6 (Temperature Optimized)")
         st.info("KRAFTON Japan 社内ツールです。ユーザー名とパスワードを入力してください。")
         
         with st.form("login_form"):
@@ -254,7 +254,7 @@ st.markdown("""
 # タイトル（ユーザー名表示付き）
 col_title, col_user = st.columns([4, 1])
 with col_title:
-    st.title("競合分析AI v2.5 (Few-Shot Enhanced)")
+    st.title("競合分析AI v2.6 (Temperature Optimized)")
     st.markdown("**市場データに基づく競合タイトル分析ツール**")
 with col_user:
     st.markdown(f"**ログイン中:** {st.session_state.get('user_display_name', 'ゲスト')}")
@@ -797,6 +797,30 @@ FGOの推定年間売上は950億円です。
 [該当する項目を明記し、推測であることを明示]
 
 **添付されている市場データの活用を最優先すること。具体的な数値、ページ番号、出典を必ず含めること。**
+
+---
+
+**【最終確認 - 必ず守ること】**
+
+すべてのセクション（MARKET_ANALYSIS、COMPETITOR_ANALYSIS、GAP_ANALYSIS、ACTION_PLAN、RISK_OPPORTUNITY、DATA_SOURCES）は、
+**必ずMarkdown表形式で出力**してください。
+
+テキストのみの箇条書きは絶対に使用しないでください。
+
+正しい形式の例:
+```
+| 項目 | 競合タイトル | 自社タイトル |
+|------|------------|------------|
+| 年間売上 | 950億円 | 50億円（目標） |
+```
+
+誤った形式の例（使用禁止）:
+```
+- 競合タイトルの年間売上は950億円です
+- 自社タイトルの目標は50億円です
+```
+
+この指示を必ず守って出力してください。
 """
                 
                 # ===== Claude を使うパターン =====
@@ -833,6 +857,7 @@ FGOの推定年間売上は950億円です。
                         message = client.messages.create(
                             model="claude-sonnet-4-20250514",
                             max_tokens=8000,
+                            temperature=0.1,  # 決定論的な出力を強制
                             system=[
                                 {
                                     "type": "text",
@@ -876,6 +901,7 @@ FGOの推定年間売上は950億円です。
                         message = client.messages.create(
                             model="claude-sonnet-4-20250514",
                             max_tokens=8000,
+                            temperature=0.1,  # 決定論的な出力を強制
                             system="""あなたはゲーム業界の競合分析専門家です。
 
 【絶対に守るべきルール】
@@ -999,7 +1025,7 @@ FGOの推定年間売上は950億円です。
 このような表形式を必ず使用してください。テキストのみの出力は不可です。"""},
                                 {"role": "user", "content": prompt}
                             ],
-                            temperature=0.7,
+                            temperature=0.1,  # 決定論的な出力を強制
                             max_tokens=8000
                         )
                         
@@ -1355,7 +1381,7 @@ if st.session_state.get("show_logs", False):
 st.markdown("---")
 col_f1, col_f2, col_f3 = st.columns(3)
 with col_f1:
-    st.markdown("**競合分析AI v2.5 (Few-Shot Enhanced)**")
+    st.markdown("**競合分析AI v2.6 (Temperature Optimized)**")
 with col_f2:
     st.markdown(f"*Powered by {api_provider if 'api_provider' in locals() else 'AI'}*")
 with col_f3:
