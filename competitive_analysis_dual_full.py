@@ -18,6 +18,57 @@ st.set_page_config(
 )
 
 # ============================================
+# Prompt Caching: 市場データキャッシュ
+# ============================================
+
+@st.cache_data
+def load_market_data_cache():
+    """
+    市場データキャッシュを読み込み（アプリ起動時に1回のみ）
+    /mnt/project/のテキストファイルから直接読み込み
+    """
+    files = [
+        {
+            "path": "/mnt/project/PDF書籍_ファミ通ゲーム白書2025.pdf",
+            "max_chars": 200000,
+            "name": "ファミ通ゲーム白書2025"
+        },
+        {
+            "path": "/mnt/project/PDF書籍_ファミ通モバイルゲーム白書2025.pdf",
+            "max_chars": 200000,
+            "name": "ファミ通モバイルゲーム白書2025"
+        }
+    ]
+    
+    combined_text = ""
+    
+    for file_info in files:
+        try:
+            with open(file_info["path"], 'r', encoding='utf-8') as f:
+                text = f.read()
+            
+            # 最大文字数で切り詰め
+            if file_info["max_chars"]:
+                text = text[:file_info["max_chars"]]
+            
+            # クリーニング
+            text = text.replace('\r\n', '\n').replace('\r', '\n')
+            
+            combined_text += f"\n\n【出典: {file_info['name']}】\n{text}"
+            
+        except Exception as e:
+            print(f"Error loading {file_info['name']}: {e}")
+            continue
+    
+    if combined_text:
+        # トークン数を推定
+        estimated_tokens = len(combined_text) // 4
+        print(f"Market data cache loaded: {len(combined_text):,} chars (~{estimated_tokens:,} tokens)")
+        return combined_text
+    
+    return None
+
+# ============================================
 # セキュリティ機能: アクセスログ記録
 # ============================================
 
@@ -704,12 +755,43 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
                 if api_provider == "Claude (Anthropic)":
                     client = anthropic.Anthropic(api_key=api_key)
                     
-                    # API呼び出し
-                    message = client.messages.create(
-                        model="claude-sonnet-4-20250514",
-                        max_tokens=8000,
-                        messages=[{"role": "user", "content": prompt}]
-                    )
+                    # 市場データキャッシュを読み込み
+                    market_data_cache = load_market_data_cache()
+                    
+                    # Prompt Cachingを使用
+                    if market_data_cache:
+                        st.info("📚 市場データキャッシュを使用（Prompt Caching）")
+                        
+                        message = client.messages.create(
+                            model="claude-sonnet-4-20250514",
+                            max_tokens=8000,
+                            system=[
+                                {
+                                    "type": "text",
+                                    "text": "あなたはゲーム業界の競合分析専門家です。提供された市場データを参照して、正確で詳細な分析を提供してください。",
+                                },
+                                {
+                                    "type": "text",
+                                    "text": market_data_cache,
+                                    "cache_control": {"type": "ephemeral"}  # Prompt Caching
+                                }
+                            ],
+                            messages=[{"role": "user", "content": prompt}]
+                        )
+                        
+                        # キャッシュ使用状況をログ
+                        usage = message.usage
+                        if hasattr(usage, 'cache_read_input_tokens') and usage.cache_read_input_tokens > 0:
+                            st.success(f"✅ キャッシュヒット！（{usage.cache_read_input_tokens:,} tokens読み取り、コスト90%削減）")
+                        elif hasattr(usage, 'cache_creation_input_tokens') and usage.cache_creation_input_tokens > 0:
+                            st.info(f"🔄 キャッシュ作成（{usage.cache_creation_input_tokens:,} tokens、次回から90%削減）")
+                    else:
+                        # キャッシュなし（通常モード）
+                        message = client.messages.create(
+                            model="claude-sonnet-4-20250514",
+                            max_tokens=8000,
+                            messages=[{"role": "user", "content": prompt}]
+                        )
                     
                     result = message.content[0].text
                 
@@ -717,18 +799,72 @@ if st.button("▶ 競合分析を実行", type="primary", use_container_width=Tr
                 else:
                     client = OpenAI(api_key=api_key)
                     
-                    # Chat Completions API
-                    response = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[
-                            {"role": "system", "content": "あなたはゲーム業界の競合分析専門家です。"},
-                            {"role": "user", "content": prompt}
-                        ],
-                        temperature=0.7,
-                        max_tokens=8000
-                    )
+                    # Vector Store使用判定
+                    use_vector_store = 'vector_store_id' in locals() and vector_store_id is not None
                     
-                    result = response.choices[0].message.content
+                    if use_vector_store:
+                        # Assistants API + Vector Store
+                        st.info("📚 Vector Storeを使用して分析します...")
+                        
+                        # Step 1: Assistantを作成
+                        assistant = client.beta.assistants.create(
+                            name="Game Market Analyzer",
+                            instructions="あなたはゲーム業界の競合分析専門家です。提供された市場データを参照して、正確で詳細な分析を提供してください。",
+                            model="gpt-4-turbo",
+                            tools=[{"type": "file_search"}],
+                            tool_resources={
+                                "file_search": {
+                                    "vector_store_ids": [vector_store_id]
+                                }
+                            }
+                        )
+                        
+                        # Step 2: Threadを作成
+                        thread = client.beta.threads.create()
+                        
+                        # Step 3: メッセージを追加
+                        client.beta.threads.messages.create(
+                            thread_id=thread.id,
+                            role="user",
+                            content=prompt
+                        )
+                        
+                        # Step 4: Runを実行（完了まで待機）
+                        run = client.beta.threads.runs.create_and_poll(
+                            thread_id=thread.id,
+                            assistant_id=assistant.id,
+                            timeout=300  # 5分でタイムアウト
+                        )
+                        
+                        # Step 5: 結果を取得
+                        if run.status == "completed":
+                            messages = client.beta.threads.messages.list(
+                                thread_id=thread.id,
+                                order="desc",
+                                limit=1
+                            )
+                            result = messages.data[0].content[0].text.value
+                            
+                            # Assistantを削除（リソース節約）
+                            client.beta.assistants.delete(assistant.id)
+                        else:
+                            raise Exception(f"分析に失敗しました (Status: {run.status})")
+                    
+                    else:
+                        # Chat Completions API（Vector Storeなし）
+                        st.info("ℹ️ 基本モードで分析します（Vector Store未使用）")
+                        
+                        response = client.chat.completions.create(
+                            model="gpt-4o",
+                            messages=[
+                                {"role": "system", "content": "あなたはゲーム業界の競合分析専門家です。"},
+                                {"role": "user", "content": prompt}
+                            ],
+                            temperature=0.7,
+                            max_tokens=8000
+                        )
+                        
+                        result = response.choices[0].message.content
                 
                 st.success(f"■ 分析完了 ({api_provider})")
                 st.markdown("---")
